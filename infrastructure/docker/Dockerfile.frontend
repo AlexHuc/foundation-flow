@@ -1,0 +1,41 @@
+# Alpine Linux + Node.js 18 + npm
+# Alpine = smaller Linux-based image with fewer security vulnerabilities
+FROM node:18-alpine
+
+WORKDIR /app/frontend
+
+# Container:
+    # /app/frontend/
+    # ├── package.json
+    # └── package-lock.json
+COPY frontend/package*.json ./
+
+# npm reads package.json and package-lock.json to install dependencies
+# npm download and install dependencies on node_modules/ directory inside the container
+RUN npm install
+
+# Why copy package.json and package-lock.json first, then run npm install, then copy the rest of the code?
+# This is a common Docker optimization technique to leverage Docker's layer caching mechanism.
+# Container:
+    # /app/frontend/
+    # ├── app/
+    # ├── components/
+    # ├── public/
+    # ├── package.json
+    # └── next.config.js
+COPY frontend/ .
+
+# Build Next.js app, executes the build script defined in package.json
+RUN npm run build
+
+# What does Next.js generate?
+# -> compiles pages
+# -> optimized assets
+# -> server bundles
+# -> routing information
+
+# Expose inside the container. This does not publish the port to the host machine
+EXPOSE 3000
+
+# Executes "npm run dev" which starts the Next.js development server
+CMD ["npm", "run", "dev"]

@@ -1,0 +1,48 @@
+# Debian Linux + Python 3.11
+# slim = smaller Debian-based image with fewer preinstalled packages
+FROM python:3.11-slim
+
+# Set working directory inside the container
+WORKDIR /app
+
+# Install system dependencies
+# "RUN" execute commands when building the Docker image
+#   -> "apt-get update" download the latest index from Debian repositories
+#   -> "apt-get install -y" install packages without prompting for confirmation
+#   -> "build-essential" installs gcc, g++, make and other packages to compile Python packages with C extensions
+#   -> "libpq-dev" installs PostgreSQL client libraries
+#   -> "curl" installs curl, used for downloading, health checks, and other tasks
+#   -> "rm -rf /var/lib/apt/lists/*" deletes package cache to reduce image size
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements from local backend/requirements.txt to container directory /app/requirements.txt
+COPY backend/requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Container:
+    # /app/
+    # ├── requirements.txt
+    # └── backend/
+    #     ├── app/
+    #     │   ├── main.py
+    #     │   └── routes.py
+    #     └── services/
+COPY backend/ /app/backend/
+
+EXPOSE 8000
+
+# Executes when container starts
+# 1. Uvicorn -> Lightning-fast ASGI server
+    # -> receives HTTP requests
+    # -> call FastAPI app defined in app/backend/app/main.py
+    # -> send back HTTP responses
+# 2. "app.main:app" -> "app.main" is the Python module where FastAPI app instance is defined, "app" is the FastAPI instance inside that module
+# 3. "--host 0.0.0.0" -> Listen on all network interfaces, outside the container
+# 4. "--port 8000" -> Listen on port 8000 for incoming, inside the container
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

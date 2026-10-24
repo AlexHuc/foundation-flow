@@ -1,0 +1,147 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw data ingested from Yahoo Finance API
+    database: analytics
+    schema: raw
+    tables:
+      - name: yahoo_prices_raw
+        description: Raw OHLCV price data from Yahoo Finance
+        columns:
+          - name: id
+            description: Primary key
+          - name: ticker
+            description: Stock ticker symbol
+            tests:
+              - not_null
+              - relationships:
+                  to: source('raw', 'yahoo_fundamentals_raw')
+                  field: ticker
+          - name: date
+            description: Trading date
+            tests:
+              - not_null
+          - name: open
+            description: Opening price
+            tests:
+              - not_null
+          - name: high
+            description: Highest price of the day
+            tests:
+              - not_null
+          - name: low
+            description: Lowest price of the day
+            tests:
+              - not_null
+          - name: close
+            description: Closing price
+            tests:
+              - not_null
+          - name: volume
+            description: Trading volume
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [">= 0"]
+
+      - name: yahoo_fundamentals_raw
+        description: Raw fundamental metrics from Yahoo Finance
+        columns:
+          - name: ticker
+            description: Stock ticker symbol
+            tests:
+              - not_null
+              - unique
+          - name: market_cap
+            description: Market capitalization
+          - name: pe_ratio
+            description: Price-to-earnings ratio
+          - name: dividend_yield
+            description: Dividend yield percentage
+          - name: beta
+            description: Beta (systematic risk)
+
+models:
+  - name: stg_prices
+    description: Staging model for cleaned price data
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: date
+        tests:
+          - not_null
+      - name: close
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["> 0"]
+      - name: is_price_valid
+        description: Flag indicating if price data passes quality checks
+        tests:
+          - not_null
+
+  - name: stg_fundamentals
+    description: Staging model for cleaned fundamental metrics
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+
+  - name: int_returns
+    description: Intermediate model with calculated returns
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: date
+        tests:
+          - not_null
+      - name: daily_return
+        description: Daily percentage return
+
+  - name: int_volatility
+    description: Intermediate model with calculated volatility metrics
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: date
+        tests:
+          - not_null
+      - name: volatility_20d
+        description: 20-day annualized volatility
+      - name: volatility_252d
+        description: 252-day (1-year) annualized volatility
+
+  - name: fact_stock_prices
+    description: Fact table with comprehensive price data
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: date
+        tests:
+          - not_null
+      - name: close
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["> 0"]
+
+  - name: fact_stock_metrics
+    description: Fact table with latest stock metrics and fundamentals
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+          - unique
+      - name: current_price
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["> 0"]
+      - name: market_cap
+        tests:
+          - dbt_utils.not_empty

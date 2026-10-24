@@ -1,0 +1,181 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: foundation_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-analytics}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_postgres.sql:/docker-entrypoint-initdb.d/01-init.sql
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-airflow} -d ${POSTGRES_DB:-analytics}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - foundation
+
+  timescale:
+    image: timescale/timescaledb:latest-pg15-oss
+    container_name: foundation_timescale
+    environment:
+      POSTGRES_USER: ${TIMESCALE_USER:-postgres}
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:-postgres}
+      POSTGRES_DB: ${TIMESCALE_DB:-analytics_prod}
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./scripts/init_timescale.sql:/docker-entrypoint-initdb.d/01-init.sql
+    ports:
+      - "${TIMESCALE_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALE_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - foundation
+
+  airflow-scheduler:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/Dockerfile.airflow
+    container_name: foundation_airflow_scheduler
+    environment:
+      AIRFLOW_HOME: ${AIRFLOW_HOME:-/opt/airflow}
+      AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+      AIRFLOW_GID: ${AIRFLOW_GID:-0}
+      AIRFLOW__CORE__EXECUTOR: ${AIRFLOW__CORE__EXECUTOR:-LocalExecutor}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN:-postgresql+psycopg2://airflow:airflow@postgres:5432/analytics}
+      AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES:-False}
+      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: ${AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS:-False}
+      AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: ${AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL:-1}
+      AIRFLOW__CORE__STORE_SERIALIZED_DAGS: ${AIRFLOW__CORE__STORE_SERIALIZED_DAGS:-False}
+      AIRFLOW__CORE__MIN_SERIALIZATION_INTERVAL: ${AIRFLOW__CORE__MIN_SERIALIZATION_INTERVAL:-0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../airflow/plugins:/opt/airflow/plugins
+      - ../airflow/operators:/opt/airflow/operators
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - foundation
+    command: ["bash", "-c", "airflow db migrate && airflow scheduler"]
+    healthcheck:
+      test: ["CMD-SHELL", "airflow dags list | head -1 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+# docker compose logs airflow-webserver --tail=50
+# # docker compose exec -T airflow-scheduler airflow dags reserialize
+  airflow-webserver:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/Dockerfile.airflow
+    container_name: foundation_airflow_webserver
+    environment:
+      AIRFLOW_HOME: ${AIRFLOW_HOME:-/opt/airflow}
+      AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+      AIRFLOW_GID: ${AIRFLOW_GID:-0}
+      AIRFLOW__CORE__EXECUTOR: ${AIRFLOW__CORE__EXECUTOR:-LocalExecutor}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN:-postgresql+psycopg2://airflow:airflow@postgres:5432/analytics}
+      AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES:-False}
+      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: ${AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS:-False}
+      AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: ${AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL:-1}
+      AIRFLOW__CORE__STORE_SERIALIZED_DAGS: ${AIRFLOW__CORE__STORE_SERIALIZED_DAGS:-False}
+      AIRFLOW__CORE__MIN_SERIALIZATION_INTERVAL: ${AIRFLOW__CORE__MIN_SERIALIZATION_INTERVAL:-0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../airflow/plugins:/opt/airflow/plugins
+      - ../airflow/operators:/opt/airflow/operators
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-scheduler:
+        condition: service_healthy
+    networks:
+      - foundation
+    ports:
+      - "8080:8080"
+    command: ["bash", "-c", "airflow db migrate && airflow api-server"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/Dockerfile.backend
+    container_name: foundation_backend
+    environment:
+      FASTAPI_HOST: ${FASTAPI_HOST:-0.0.0.0}
+      FASTAPI_PORT: ${FASTAPI_PORT:-8000}
+      FASTAPI_ENV: ${FASTAPI_ENV:-development}
+      FASTAPI_DEBUG: ${FASTAPI_DEBUG:-True}
+      DATABASE_URL: postgresql://airflow:airflow@postgres:5432/analytics
+      ANALYTICS_DATABASE_URL: postgresql://postgres:postgres@timescale:5432/analytics_prod
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ../backend:/app/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      timescale:
+        condition: service_healthy
+    networks:
+      - foundation
+    ports:
+      - "${FASTAPI_PORT:-8000}:8000"
+    command: uvicorn app.main:app --host ${FASTAPI_HOST:-0.0.0.0} --port ${FASTAPI_PORT:-8000} --reload
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/docs || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/Dockerfile.frontend
+    container_name: foundation_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_API_TIMEOUT: ${NEXT_PUBLIC_API_TIMEOUT:-30000}
+    volumes:
+      - ../frontend:/app/frontend
+      - /app/frontend/.next
+    depends_on:
+      - backend
+    networks:
+      - foundation
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  postgres_data:
+  timescale_data:
+  airflow_logs:
+
+networks:
+  foundation:
+    driver: bridge
