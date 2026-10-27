@@ -91,10 +91,11 @@ services:
       - foundation
     command: ["bash", "-c", "airflow db migrate && airflow scheduler"]
     healthcheck:
-      test: ["CMD-SHELL", "airflow dags list | head -1 2>/dev/null || exit 1"]
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\""]
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 60s
 
 
   airflow-dag-processor:
@@ -115,6 +116,8 @@ services:
       - airflow_logs:/opt/airflow/logs
     depends_on:
       postgres:
+        condition: service_healthy
+      airflow-scheduler:
         condition: service_healthy
     networks:
       - foundation
@@ -164,13 +167,14 @@ services:
     command: ["bash", "-c", "airflow db migrate && airflow api-server"]
     healthcheck:
       test:
-        [
-          "CMD-SHELL",
-          "curl -fsS http://localhost:8080/api/v2/monitor/health || exit 1"
-        ]
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v2/monitor/health', timeout=5)"
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 60s
 
 
   dbt:
