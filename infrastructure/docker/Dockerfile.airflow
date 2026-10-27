@@ -10,11 +10,12 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /opt/airflow
 
 RUN pip install --no-cache-dir \
-    apache-airflow==3.2.2 \
+    apache-airflow==3.3.2 \
+    apache-airflow-providers-fab==3.3.0 \
     apache-airflow-providers-postgres==6.8.0 \
     apache-airflow-providers-http==6.0.4 \
     flask-session==0.8.0 \
-    yfinance==1.4.1 \
+    yfinance==1.7.0 \
     pandas==3.0.3 \
     psycopg2-binary==2.9.12
 
@@ -25,5 +26,4 @@ RUN useradd -m -u 50000 airflow && \
 USER airflow
 
 EXPOSE 8080 8793
-
 CMD ["airflow", "scheduler"]

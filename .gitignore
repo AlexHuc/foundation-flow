@@ -1,5 +1,8 @@
 # Python Environment
-/fundation_venv
+/ff_venv
+
+# Sandbox
+/sandbox
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

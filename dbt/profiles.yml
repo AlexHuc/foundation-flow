@@ -1,0 +1,23 @@
+
+foundation_analytics:
+  target: postgres
+  outputs:
+    postgres:
+      type: postgres
+      host: "{{ env_var('DBT_POSTGRES_HOST') }}"
+      port: "{{ env_var('DBT_POSTGRES_PORT') | int }}"
+      user: "{{ env_var('DBT_POSTGRES_USER') }}"
+      password: "{{ env_var('DBT_POSTGRES_PASSWORD') }}"
+      dbname: "{{ env_var('DBT_POSTGRES_DB') }}"
+      schema: public
+      threads: 4
+
+    timescale:
+      type: postgres
+      host: "{{ env_var('DBT_TIMESCALE_HOST') }}"
+      port: "{{ env_var('DBT_TIMESCALE_PORT') | int }}"
+      user: "{{ env_var('DBT_TIMESCALE_USER') }}"
+      password: "{{ env_var('DBT_TIMESCALE_PASSWORD') }}"
+      dbname: "{{ env_var('DBT_TIMESCALE_DB') }}"
+      schema: public
+      threads: 4
