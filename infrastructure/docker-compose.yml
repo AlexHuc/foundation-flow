@@ -82,6 +82,7 @@ services:
       AIRFLOW_HOME: ${AIRFLOW_HOME}
       AIRFLOW_UID: ${AIRFLOW_UID}
       AIRFLOW_GID: ${AIRFLOW_GID}
+      PYTHONPATH: /opt/airflow
       LOG_LEVEL: ${LOG_LEVEL}
     volumes:
       - ../airflow/operators:/opt/airflow/operators
@@ -117,6 +118,7 @@ services:
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
       AIRFLOW__CORE__EXECUTOR: ${AIRFLOW__CORE__EXECUTOR}
       AIRFLOW_HOME: /opt/airflow
+      PYTHONPATH: /opt/airflow
     volumes:
       - ../airflow/operators:/opt/airflow/operators
       - ../airflow/plugins:/opt/airflow/plugins
@@ -159,6 +161,7 @@ services:
       AIRFLOW_HOME: ${AIRFLOW_HOME}
       AIRFLOW_UID: ${AIRFLOW_UID}
       AIRFLOW_GID: ${AIRFLOW_GID}
+      PYTHONPATH: /opt/airflow
       LOG_LEVEL: ${LOG_LEVEL}
     volumes:
       - ../airflow/operators:/opt/airflow/operators
