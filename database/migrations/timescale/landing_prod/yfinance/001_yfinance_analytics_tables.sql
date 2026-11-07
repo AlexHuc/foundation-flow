@@ -1,19 +1,3 @@
-
--- Migration: 001_create_analytics_tables.sql
--- Purpose: Create time-series analytics tables and supporting objects.
--- Database: TimescaleDB
--- Schema: analytics
-
-BEGIN;
-
-CREATE EXTENSION IF NOT EXISTS timescaledb;
-CREATE SCHEMA IF NOT EXISTS analytics;
-
-
--- ---------------------------------------------------------------------------
--- STOCK PRICES
--- ---------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS analytics.stock_prices (
     time TIMESTAMPTZ NOT NULL,
     ticker VARCHAR(20) NOT NULL,

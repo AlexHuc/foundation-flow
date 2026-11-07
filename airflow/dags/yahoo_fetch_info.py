@@ -1,15 +1,12 @@
-from airflow.providers.standard.operators.python import PythonOperator
 from datetime import datetime, timedelta
 from airflow import DAG
 import sys
 
 sys.path.insert(0, '/opt/airflow/operators')
-from yahoo_finance_operators import FetchYahooFinancePricesOperator
+from yahoo_finance_operators import FetchYahooFinanceTickerInfo
 
 # Global variables
 TICKERS = ['CRDO']
-PERIOD = '5d'      # Daily data
-INTERVAL = '1d'    # Daily interval
 
 # Default arguments
 default_args = {
@@ -17,7 +14,7 @@ default_args = {
     'retries': 0,
     'retry_delay': timedelta(minutes=5),
     'retry_exponential_base': 2,
-    'start_date': datetime(2024, 1, 1),
+    'start_date': datetime(2026, 10, 28),
     'email_on_failure': False,
     'email_on_retry': False,
     'depends_on_past': False,
@@ -25,24 +22,22 @@ default_args = {
 
 # DAG definition
 dag = DAG(
-    'yahoo_fetch_daily_prices',
+    'yahoo_fetch_info',
     default_args=default_args,
-    description='Fetch daily OHLCV prices from Yahoo Finance',
-    schedule=None,
+    description='Fetch fundamental info metrics from Yahoo Finance',
+    schedule='0 8 * * 1',  # Weekly Monday 8 AM UTC (3 AM ET)
     catchup=False,
     max_active_runs=1,
-    tags=['data-ingestion', 'yahoo-finance', 'prices'],
+    tags=['data-ingestion', 'yahoo-finance', 'fundamentals', 'info'],
 )
 
-# Fetch prices
+# Fetch fundamentals
 fetch_tasks = []
 for ticker in TICKERS:
-    fetch_task = FetchYahooFinancePricesOperator(
-        task_id=f'fetch_prices_{ticker}',
+    fetch_task = FetchYahooFinanceTickerInfo(
+        task_id=f'fetch_info_{ticker}',
         ticker=ticker,
-        period=PERIOD,
-        interval=INTERVAL,
-        postgres_conn_id='postgres_raw',
+        postgres_conn_id='postgres_landing',
         dag=dag,
     )
     fetch_tasks.append(fetch_task)
