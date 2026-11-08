@@ -5,7 +5,7 @@
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS landing.yahoo_ttm_cashflow (
-    ticker                                                 VARCHAR(20) NOT NULL,
+    ticker                                                 VARCHAR(10) NOT NULL,
     date                                                   DATE NOT NULL,
 
     -- Free cash flow and capital expenditure

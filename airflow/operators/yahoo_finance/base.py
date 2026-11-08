@@ -1,5 +1,6 @@
 """Base operator for Yahoo Finance ingestion."""
 
+import pandas as pd
 import math
 import re
 
@@ -15,6 +16,8 @@ class YahooFinanceBaseOperator(BaseOperator):
     METADATA_COLUMNS = frozenset({
         "ticker",
         "date",
+        "period",
+        "quarter",
         "ingested_at",
         "created_at",
         "updated_at",
@@ -66,9 +69,26 @@ class YahooFinanceBaseOperator(BaseOperator):
     @staticmethod
     def normalize_metric(name):
         """Convert Yahoo Finance metric names to snake_case."""
-        normalized = re.sub(
-            r"[^a-zA-Z0-9]+",
-            "_",
-            str(name).strip().lower(),
-        )
-        return re.sub(r"_+", "_", normalized).strip("_")
+
+        name = str(name).strip()
+
+        # Handle camelCase and PascalCase.
+        name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
+        name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+
+        # Replace spaces and special characters with underscores.
+        name = re.sub(r"[^a-zA-Z0-9]+", "_", name)
+
+        # Remove duplicate and surrounding underscores.
+        return re.sub(r"_+", "_", name).strip("_").lower()
+
+    @classmethod
+    def numeric_or_none(cls, value):
+        """Convert missing numeric values to PostgreSQL NULL."""
+
+        if pd.isna(value):
+            return None
+
+        value = cls.clean_scalar(value)
+
+        return None if value is None else float(value)
