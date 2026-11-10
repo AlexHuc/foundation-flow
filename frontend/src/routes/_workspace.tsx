@@ -54,7 +54,7 @@ function TopNavigation() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const { data } = useQuery(companiesQueryOptions);
+  const { data, isError } = useQuery(companiesQueryOptions);
   const companies = data?.companies ?? [];
   const results = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -82,7 +82,8 @@ function TopNavigation() {
         />
         {open && (
           <div className="absolute left-0 right-0 top-11 overflow-hidden rounded-md border bg-popover shadow-2xl">
-            {results.length === 0 && <div className="px-3 py-3 text-sm text-muted-foreground">No matching companies</div>}
+            {isError && <div className="px-3 py-3 text-sm text-muted-foreground">Backend unavailable — search needs the API connection</div>}
+            {!isError && results.length === 0 && <div className="px-3 py-3 text-sm text-muted-foreground">No matching companies</div>}
             {results.map((c) => (
               <button key={c.ticker} onMouseDown={() => go(c.ticker)} className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent">
                 <span className="num w-14 text-sm font-bold text-chart">{c.ticker}</span>

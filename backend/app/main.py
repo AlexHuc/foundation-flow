@@ -5,9 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .config import get_settings
-from .db import close_pool, connection, open_pool
+from .db import close_pool, connection, ensure_pool, open_pool
 from .routes import companies, datasets, pipelines
 
 logger = logging.getLogger("foundation_flow.api")
@@ -15,7 +16,14 @@ logger = logging.getLogger("foundation_flow.api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await open_pool()
+    # A missing database at startup must not crash the service: Docker starts
+    # containers in dependency order, but PostgreSQL can still be momentarily
+    # unreachable. The health endpoint retries the connection and reports 503
+    # until the pool is up.
+    try:
+        await open_pool()
+    except Exception:  # noqa: BLE001 — logged, retried via /api/health
+        logger.exception("Database pool unavailable at startup; will retry on health checks")
     try:
         yield
     finally:
@@ -47,12 +55,21 @@ app.include_router(pipelines.router)
 
 
 @app.get("/api/health", tags=["health"])
-async def health() -> dict:
-    """Liveness + database connectivity check."""
+async def health() -> JSONResponse:
+    """Liveness + database connectivity check.
+
+    Returns HTTP 200 only when the database answers `SELECT 1`; otherwise
+    HTTP 503 so Docker health checks and load balancers treat the service as
+    unavailable until PostgreSQL is reachable.
+    """
     try:
+        await ensure_pool()
         async with connection() as conn:
             await conn.fetchval("SELECT 1")
-        return {"status": "ok", "database": "up"}
+        return JSONResponse({"status": "ok", "database": "up"})
     except Exception as exc:  # noqa: BLE001 — surfaced intentionally
         logger.exception("Health check failed")
-        return {"status": "degraded", "database": "down", "detail": str(exc)}
+        return JSONResponse(
+            {"status": "degraded", "database": "down", "detail": str(exc)},
+            status_code=503,
+        )

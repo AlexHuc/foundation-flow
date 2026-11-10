@@ -83,6 +83,27 @@ export function MetricCard({
   );
 }
 
+export function ConnectionErrorState({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <div className="diagonal-lines flex flex-col items-center justify-center rounded-lg border border-dashed px-6 py-16 text-center">
+      <div className="eyebrow mb-2">Connection Error</div>
+      <h3 className="text-lg font-semibold text-foreground">Cannot reach the Foundation Flow API</h3>
+      <p className="mt-2 max-w-md text-sm text-muted-foreground">
+        The app is configured for real data, but the backend did not respond. Check that the FastAPI service is
+        running and reachable, then try again. No illustrative data is shown in this mode.
+      </p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="mt-6 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-shadow hover:glow-primary"
+        >
+          Retry connection
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function EmptyDataState({ title, body }: { title: string; body: string }) {
   return (
     <div className="diagonal-lines flex flex-col items-center justify-center rounded-lg border border-dashed px-6 py-16 text-center">
@@ -93,12 +114,12 @@ export function EmptyDataState({ title, body }: { title: string; body: string })
   );
 }
 
-export function DataFreshnessIndicator({ date }: { date: string }) {
+export function DataFreshnessIndicator({ date, kind = "Illustrative" }: { date: string; kind?: Parameters<typeof DataLabel>[0]["kind"] }) {
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <span className="h-1.5 w-1.5 rounded-full bg-chart" />
       Snapshot date <span className="num text-foreground">{date}</span>
-      <DataLabel kind="Illustrative" />
+      <DataLabel kind={kind} />
     </div>
   );
 }

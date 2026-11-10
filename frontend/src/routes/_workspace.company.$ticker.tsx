@@ -1,12 +1,26 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { createFileRoute, notFound, useRouter } from "@tanstack/react-router";
 import { Star } from "lucide-react";
 import { useState } from "react";
 import { FinancialBarChart, PriceChart } from "@/components/ff/charts";
-import { DataLabel, EmptyDataState, MetricCard, Panel } from "@/components/ff/primitives";
+import { ConnectionErrorState, DataLabel, EmptyDataState, MetricCard, Panel } from "@/components/ff/primitives";
 import { companyQueryOptions } from "@/lib/api";
 import { fmtMoney, fmtPct, freeCashFlow, growth, ratio } from "@/lib/metrics";
 import { cn } from "@/lib/utils";
+
+function CompanyError({ reset }: { reset: () => void }) {
+  const router = useRouter();
+  return (
+    <div className="mx-auto max-w-7xl">
+      <ConnectionErrorState
+        onRetry={() => {
+          void router.invalidate();
+          reset();
+        }}
+      />
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/_workspace/company/$ticker")({
   loader: async ({ params, context }) => {
@@ -14,6 +28,7 @@ export const Route = createFileRoute("/_workspace/company/$ticker")({
     if (!data) throw notFound();
     return { ticker: data.company.ticker, name: data.company.name };
   },
+  errorComponent: CompanyError,
   head: ({ loaderData }) => {
     const t = loaderData ? `${loaderData.name} (${loaderData.ticker}) — Foundation Flow` : "Company unavailable — Foundation Flow";
     const d = loaderData ? `Fundamental research on ${loaderData.name}: financials, margins, cash flow and valuation.` : "Company not found.";

@@ -1,0 +1,38 @@
+# Foundation Flow frontend — TanStack Start (React 19 + Vite), built with Bun
+# and served as a Nitro node-server build. Build context is the repository
+# root:
+#   docker build -f infrastructure/docker/Dockerfile.frontend .
+# (docker compose already sets this context for the `frontend` service.)
+
+FROM oven/bun:1 AS build
+WORKDIR /app
+
+# Dependencies first for Docker layer caching.
+COPY frontend/package.json frontend/bun.lock frontend/bunfig.toml ./
+RUN bun install --frozen-lockfile
+
+COPY frontend/ ./
+
+# VITE_API_BASE_URL is evaluated at BUILD time and baked into the browser
+# bundle. It must be an address the user's browser can reach (default
+# http://localhost:8000) — NOT the Docker-internal `backend` hostname.
+# FF_DOCKER_BUILD selects Nitro's node-server preset (see vite.config.ts);
+# the default preset targets Cloudflare/Lovable hosting instead.
+ARG VITE_API_BASE_URL=http://localhost:8000
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
+    FF_DOCKER_BUILD=1
+
+RUN bun run build
+
+FROM node:22-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production \
+    PORT=3000
+
+COPY --from=build /app/.output ./.output
+
+EXPOSE 3000
+
+# API_INTERNAL_URL (e.g. http://backend:8000) is read at RUNTIME for
+# server-side (SSR) fetches, where `localhost` would mean this container.
+CMD ["node", ".output/server/index.mjs"]

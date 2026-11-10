@@ -1,12 +1,27 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { PriceChart } from "@/components/ff/charts";
-import { DataFreshnessIndicator, DataLabel, MetricCard, Panel } from "@/components/ff/primitives";
+import { ConnectionErrorState, DataFreshnessIndicator, DataLabel, EmptyDataState, MetricCard, Panel } from "@/components/ff/primitives";
 import { companiesQueryOptions } from "@/lib/api";
 import { fmtMoney, fmtPct, freeCashFlow, growth, ratio } from "@/lib/metrics";
 
+function DashboardError({ reset }: { reset: () => void }) {
+  const router = useRouter();
+  return (
+    <div className="mx-auto max-w-7xl">
+      <ConnectionErrorState
+        onRetry={() => {
+          void router.invalidate();
+          reset();
+        }}
+      />
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/_workspace/dashboard")({
   loader: ({ context }) => context.queryClient.ensureQueryData(companiesQueryOptions),
+  errorComponent: DashboardError,
   head: () => ({
     meta: [
       { title: "Research Workspace — Foundation Flow" },
@@ -22,6 +37,16 @@ function Dashboard() {
   const { data } = useSuspenseQuery(companiesQueryOptions);
   const companies = data.companies;
   const srcLabel = data.source === "api" ? "Reported" : "Illustrative";
+  if (companies.length === 0) {
+    return (
+      <div className="mx-auto max-w-7xl">
+        <EmptyDataState
+          title="No companies in the database yet"
+          body="The API is connected, but the landing schema has no ingested tickers. Run the Airflow pipelines to populate market data."
+        />
+      </div>
+    );
+  }
   const focus = companies[0]!;
   const last = focus.annual.at(-1);
   const prev = focus.annual.at(-2);
@@ -33,7 +58,7 @@ function Dashboard() {
           <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Your Investment Research Workspace</h1>
           <p className="mt-2 text-muted-foreground">Analyze fundamentals. Understand businesses. Identify opportunities.</p>
         </div>
-        <DataFreshnessIndicator date={focus.priceDate} />
+        <DataFreshnessIndicator date={focus.priceDate} kind={srcLabel} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

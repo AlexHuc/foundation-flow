@@ -15,4 +15,9 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Docker self-hosting builds set FF_DOCKER_BUILD=1 (see
+  // infrastructure/docker/Dockerfile.frontend) to get Nitro's node-server
+  // output in .output/. The default cloudflare-module preset — used for
+  // Lovable/Cloudflare hosting — is unaffected.
+  ...(process.env["FF_DOCKER_BUILD"] ? { nitro: { preset: "node-server" } } : {}),
 });

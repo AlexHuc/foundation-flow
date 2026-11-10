@@ -29,6 +29,14 @@ async def close_pool() -> None:
         _pool = None
 
 
+async def ensure_pool() -> None:
+    """(Re)create the pool if startup failed or the database came up later."""
+    global _pool
+    if _pool is not None:
+        return
+    await open_pool()
+
+
 @asynccontextmanager
 async def connection() -> AsyncIterator[asyncpg.Connection]:
     if _pool is None:
