@@ -4,7 +4,7 @@
 
 **Foundation Flow** is a self-hosted, batch-oriented financial data platform for researching publicly traded companies. Its current focus is ingesting and retaining Yahoo Finance data in PostgreSQL using Apache Airflow. The longer-term goal is to transform those datasets into reusable analytics and expose them through a secure API and a premium stock-analysis web application.
 
-> **Project status:** The Docker-based data platform and Yahoo Finance ingestion operators are the current implementation. **FastAPI and Next.js are planned**, not running services in the Docker Compose configuration documented here. TimescaleDB and dbt are available as infrastructure, but their presence alone does not imply that analytical models, hypertables, or marts have been built.
+> **Project status:** The Docker-based data platform, Yahoo Finance ingestion operators, the **FastAPI backend** (`backend/`), and the **TanStack Start frontend** (`frontend/`) are all running services in the Docker Compose configuration documented here. TimescaleDB and dbt are available as infrastructure, but their presence alone does not imply that analytical models, hypertables, or marts have been built.
 
 ## Architecture
 
@@ -16,12 +16,12 @@ flowchart LR
     PGA -. Administration .-> TS
     PG -. Planned / model-dependent transformations .-> DBT[dbt CLI]
     DBT -. Planned / model-dependent outputs .-> TS[(TimescaleDB<br/>PostgreSQL 15)]
-    PG -. Future read access .-> API[FastAPI REST API<br/>Planned]
+    PG -- Read-only SELECT --> API[FastAPI REST API]
     TS -. Future analytics access .-> API
-    API -. Future .-> WEB[Next.js + TypeScript<br/>Planned]
+    API -- JSON over HTTP --> WEB[TanStack Start + React<br/>TypeScript + Tailwind]
 ```
 
-**Solid arrows** show the ingestion flow already represented by the project. **Dashed arrows** show administration, optional transformations, or planned application integration; they are not claims that those data flows are already operational.
+**Solid arrows** show the ingestion and serving flow already represented by the project. **Dashed arrows** show administration, optional transformations, or planned analytics integration; they are not claims that those data flows are already operational.
 
 ### Current vs. planned components
 
@@ -33,8 +33,8 @@ flowchart LR
 | Analytics database | TimescaleDB (PostgreSQL 15-compatible image) | Provisioned | Intended time-series / analytics storage |
 | Database administration | pgAdmin 4 | Current | Inspect and administer both databases |
 | Transformation tooling | dbt | Provisioned, optional profile | Transform landing data as models are implemented |
-| Backend | FastAPI | **Planned** | Secure REST endpoints, financial calculations, and database access |
-| Frontend | Next.js, TypeScript, Tailwind CSS | **Planned** | Fundamental research dashboard |
+| Backend | FastAPI + asyncpg | Current | Read-only REST API over the `landing` schema, with OpenAPI docs |
+| Frontend | TanStack Start (React 19), TypeScript, Tailwind CSS | Current | Fundamental research dashboard |
 
 ## Current Docker Compose services
 
@@ -48,6 +48,8 @@ The Compose file is located at **`infrastructure/docker-compose.yml`**.
 | `airflow-scheduler` | `foundation_airflow_scheduler` | `docker/Dockerfile.airflow` | Internal |
 | `airflow-dag-processor` | `foundation_airflow_dag_processor` | `docker/Dockerfile.airflow` | Internal |
 | `airflow-webserver` | `foundation_airflow_webserver` | `docker/Dockerfile.airflow` | `${AIRFLOW_WEBSERVER_PORT}` → 8080 |
+| `backend` | `foundation_backend` | `docker/Dockerfile.backend` (context: repo root) | `${BACKEND_PORT:-8000}` → 8000 |
+| `frontend` | `foundation_frontend` | `docker/Dockerfile.frontend` (context: repo root) | `${FRONTEND_PORT:-3000}` → 3000 |
 | `dbt` | `foundation_dbt` | `docker/Dockerfile.dbt` | CLI; profile `tools` |
 
 **Airflow naming note:** The service is named `airflow-webserver` for compatibility with the project, but its actual command is **`airflow api-server`**. The DAG processor runs separately using **`airflow dag-processor`**, and the scheduler starts with **`airflow db migrate && airflow scheduler`**. Do not assume an older Airflow 2.x webserver or experimental API layout.
@@ -91,14 +93,27 @@ foundation-flow/
 │   ├── docker-compose.yml
 │   ├── docker/
 │   │   ├── Dockerfile.airflow
+│   │   ├── Dockerfile.backend
+│   │   ├── Dockerfile.frontend
 │   │   └── Dockerfile.dbt
 │   ├── scripts/
 │   │   ├── init_postgres.sql
 │   │   └── init_timescale.sql
 │   └── dbt/
 │       └── profiles.yml             # Mounted into the dbt container
-├── backend/                          # Planned FastAPI application
-└── frontend/                         # Planned Next.js application
+├── backend/                          # FastAPI application (read-only API over `landing`)
+│   ├── app/
+│   │   ├── main.py                   # FastAPI app, CORS, /api/health
+│   │   ├── config.py                 # Environment-based settings
+│   │   ├── db.py                     # asyncpg pool, read-only sessions
+│   │   ├── registry.py               # Whitelisted dataset → table/column mapping
+│   │   ├── serialization.py          # JSON-safe rows (NUMERIC, dates, big numbers)
+│   │   └── routes/                   # companies, datasets, pipelines
+│   └── requirements.txt
+└── frontend/                         # TanStack Start application
+    ├── src/lib/api.ts                # Data layer: real-data mode vs. demo mode
+    ├── src/routes/                   # Landing page + research workspace
+    └── ...                           # Vite / Tailwind / React Query setup
 ```
 
 ## Yahoo Finance ingestion coverage
@@ -179,6 +194,8 @@ Important environment variables include:
 | pgAdmin | `PGADMIN_EMAIL`, `PGADMIN_PASSWORD`, `PGADMIN_PORT` |
 | Airflow | `AIRFLOW_WEBSERVER_PORT`, `AIRFLOW_HOME`, `AIRFLOW_UID`, `AIRFLOW_GID`, `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`, and the other `AIRFLOW__...` settings in Compose |
 | dbt | `DBT_POSTGRES_HOST`, `DBT_TIMESCALE_HOST` (and the database credentials above) |
+| Backend | `BACKEND_PORT`, `CORS_ORIGINS`, optional `BACKEND_DATABASE_URL` |
+| Frontend | `FRONTEND_PORT`, `VITE_API_BASE_URL` |
 
 The database hosts **inside Docker** are typically `postgres` and `timescale`, on container port `5432`. Host-mapped ports are for clients running outside the Docker network.
 
@@ -194,12 +211,18 @@ docker compose up -d --build
 docker compose ps
 ```
 
-The standard startup includes PostgreSQL, TimescaleDB, pgAdmin, the Airflow scheduler, the Airflow DAG processor, and the Airflow API server. The `dbt` CLI service is optional and started on demand.
+The standard startup includes PostgreSQL, TimescaleDB, pgAdmin, the Airflow scheduler, the Airflow DAG processor, the Airflow API server, the FastAPI backend, and the TanStack Start frontend. The `dbt` CLI service is optional and started on demand.
+
+The `backend` service waits for PostgreSQL to report healthy, connects to it at the Docker hostname `postgres:5432` (never `localhost`), and serves Uvicorn on port 8000. The `frontend` service builds the TanStack Start app with `VITE_API_BASE_URL` baked in for browser requests (default `http://localhost:8000`) and uses the runtime `API_INTERNAL_URL=http://backend:8000` for server-side rendering fetches inside the Docker network.
 
 ### 3. Open the available interfaces
 
 | Interface | Address |
 |---|---|
+| Frontend (TanStack Start) | `http://localhost:<FRONTEND_PORT>` (default 3000) |
+| FastAPI backend | `http://localhost:<BACKEND_PORT>` (default 8000) |
+| API documentation (OpenAPI) | `http://localhost:<BACKEND_PORT>/docs` |
+| API health check | `http://localhost:<BACKEND_PORT>/api/health` |
 | Airflow API server / UI | `http://localhost:<AIRFLOW_WEBSERVER_PORT>` |
 | pgAdmin | `http://127.0.0.1:<PGADMIN_PORT>` |
 | PostgreSQL TCP | `localhost:<POSTGRES_PORT>` |
@@ -212,7 +235,70 @@ In pgAdmin, register the database servers using Docker service names and port `5
 - PostgreSQL: host `postgres`
 - TimescaleDB: host `timescale`
 
-**There is no current FastAPI endpoint on port 8000 or Next.js app on port 3000 in this Compose stack.** Those are future services.
+### 3a. Verify the application stack
+
+After `docker compose up -d --build`, verify each layer in order:
+
+```bash
+# 1. Compose configuration is valid and lists every service
+docker compose config --services
+
+# 2. All services are up and healthy
+docker compose ps
+
+# 3. PostgreSQL is healthy and holds the landing schema
+docker compose exec postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+docker compose exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "SELECT count(*) FROM landing.yahoo_history;"
+
+# 4. The API health check verifies database connectivity (HTTP 200 = DB up)
+curl -i http://localhost:8000/api/health
+
+# 5. Real company records from the landing schema
+curl http://localhost:8000/api/companies
+
+# 6. Historical prices for CRDO (once ingestion has run)
+curl "http://localhost:8000/api/companies/CRDO/prices?limit=5"
+
+# 7. Populated financial datasets
+curl "http://localhost:8000/api/companies/CRDO/financials/income?period=annual"
+
+# 8. The frontend serves and its SSR fetches reach the backend
+curl -I http://localhost:3000/
+```
+
+Then open `http://localhost:3000`, search for `CRDO` in the top navigation, and open `/company/CRDO`. With the API reachable, every data label reads **Reported** (or **Calculated** for derived metrics) and values come from your database. Empty datasets render explicit empty states; missing metrics render as `—`.
+
+**Real-data mode vs. demo mode.** The frontend decides at build time: with `VITE_API_BASE_URL` set (the Docker default), it is in *real-data mode* — if the backend is unreachable, pages show a **Connection Error** with a retry button and never substitute sample numbers. With `VITE_API_BASE_URL` unset (e.g. `bun run dev` without env), the frontend runs in *demo mode* with clearly labeled **Illustrative** sample data for design exploration.
+
+### 3b. Container logs and stopping the stack
+
+```bash
+# Follow backend or frontend logs
+docker compose logs -f backend
+docker compose logs -f frontend
+
+# Stop everything, KEEPING database volumes and ingested data
+docker compose down
+
+# Danger: also deletes postgres_data / timescale_data volumes
+# docker compose down -v
+```
+
+### 3c. Read-only database role (optional but recommended)
+
+The API only ever runs `SELECT` queries and enforces `default_transaction_read_only=on` at the session level. For defense in depth, create a dedicated SELECT-only role and point the backend at it:
+
+```bash
+docker compose exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+CREATE ROLE foundation_ro LOGIN PASSWORD 'choose_a_strong_password';
+GRANT USAGE ON SCHEMA landing TO foundation_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA landing TO foundation_ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA landing GRANT SELECT ON TABLES TO foundation_ro;
+SQL
+```
+
+Then set `BACKEND_DATABASE_URL=postgresql://foundation_ro:choose_a_strong_password@postgres:5432/<POSTGRES_DB>` in `infrastructure/.env` and rebuild the backend service.
 
 ### 4. Inspect the Airflow DAGs
 
@@ -363,6 +449,26 @@ Check database health, environment variables, Airflow migrations, and shared cre
 
 Verify that the profile points to `postgres` or `timescale` on Docker-network port `5432`, not a host-published port, and that the requested target database and schema exist.
 
+### The frontend shows "Connection Error"
+
+The frontend is in real-data mode and cannot reach the API. Check in order:
+
+1. `docker compose ps` — is `foundation_backend` up and healthy?
+2. `docker compose logs backend` — database connection errors mean PostgreSQL is unreachable or credentials are wrong; the backend retries and `/api/health` returns 503 until it connects.
+3. `curl http://localhost:8000/api/health` from the host — if this fails, the backend container or port mapping is the problem.
+4. If the health check passes but the browser still fails, the frontend image was built with a `VITE_API_BASE_URL` your browser cannot reach (for example the Docker-internal hostname `backend`). Set `VITE_API_BASE_URL=http://localhost:8000` in `infrastructure/.env` and rebuild: `docker compose up -d --build frontend`.
+5. CORS errors in the browser console mean the frontend origin is missing from `CORS_ORIGINS` (default `http://localhost:3000`).
+
+### Running the test suites
+
+```bash
+# Backend: exercised against a scratch PostgreSQL loaded with the landing migrations
+cd backend && pip install -r requirements.txt
+
+# Frontend: unit and mapping tests (13 tests)
+cd frontend && bun install && bun run test
+```
+
 ## Development roadmap
 
 ### Current focus — data ingestion and foundation
@@ -381,20 +487,21 @@ Verify that the profile points to `postgres` or `timescale` on Docker-network po
 - Optimized time-series analytics and historical comparisons.
 - Data freshness, validation, and lineage monitoring.
 
-### Planned — backend API
+### Current — backend API
 
-- FastAPI service with read-only access to financial data.
+- FastAPI service with read-only access to financial data (`backend/`).
 - Typed responses and parameterized queries.
 - Company profiles, price history, statements, estimates, ownership, options, and filings endpoints.
-- Caching, pagination, security, and OpenAPI documentation.
+- OpenAPI documentation at `/docs`; health check with database connectivity at `/api/health`.
+- Still planned: caching, pagination, authentication.
 
-### Planned — frontend application
+### Current — frontend application
 
-- Next.js / TypeScript / Tailwind CSS research dashboard.
+- TanStack Start / TypeScript / Tailwind CSS research dashboard (`frontend/`).
 - Fundamental analysis, financial statements, and charts.
-- Analyst, institutional ownership, insider activity, options, and SEC filings views.
-- Valuation tools, company comparisons, and watchlists.
+- Analyst, institutional ownership, insider activity, options, and SEC filings views (populated as datasets land).
 - Premium dark Foundation Flow design system.
+- Still planned: valuation tools, company comparisons, and watchlists backed by real data.
 
 ### Planned — production operations
 

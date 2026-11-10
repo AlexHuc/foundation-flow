@@ -192,6 +192,71 @@ services:
       start_period: 60s
 
 
+  backend:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/Dockerfile.backend
+    container_name: foundation_backend
+    environment:
+      # Inside Docker, PostgreSQL is reachable at the service hostname
+      # `postgres` — never `localhost`.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Optional: point the API at a dedicated SELECT-only database role
+      # instead of the ingestion role (see README → "Read-only database role").
+      DATABASE_URL: ${BACKEND_DATABASE_URL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - foundation
+    restart: unless-stopped
+    healthcheck:
+      # /api/health runs SELECT 1 against PostgreSQL and returns 503 until it
+      # succeeds, so this checks database connectivity, not just Uvicorn.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/Dockerfile.frontend
+      args:
+        # Baked into the browser bundle at build time — must be reachable from
+        # the user's browser, NOT the Docker-internal `backend` hostname.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    container_name: foundation_frontend
+    environment:
+      # Server-side (SSR) fetches run inside this container, where `localhost`
+      # is the container itself — use the Docker network hostname instead.
+      API_INTERNAL_URL: http://backend:8000
+      PORT: "3000"
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - foundation
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+
   dbt:
     build:
       context: .
